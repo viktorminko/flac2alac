@@ -1,24 +1,60 @@
-#!/bin/sh
+#!/bin/bash
 
-echo ""
-echo "flac2alac - script to convert FLAC audio to ALAC"
-echo "By Arlindo \"Nighto\" Pereira"
-echo "<nighto@nighto.net>"
-echo "(C) 2010. Licensed on GPLv3"
-echo ""
+function convert_flac2alac { 
+    DIR="$1"
+    SUFFIX="flac"
 
-if [ "$1" ]
-then
-	ffmpeg  -i "$1" -acodec alac "`basename "$1" .flac`.m4a" \
+
+    if [ $IS_RECURSIVE -eq 1 ]; then  
+	for folder in "$DIR"/*;
+        do
+	    if [ -d "$folder" ] ; then
+	       convert_flac2alac "$folder"
+	    fi
+        done
+    fi
+
+    for cueFile in "$DIR"/*.cue
+    do
+        flacFileName="`basename "$cueFile" .cue`.flac"
+
+        if [ -f "$DIR"/"$flacFileName" ]; then  	      
+            cuebreakpoints "$cueFile" | shnsplit -o flac -a "$DIR"/"split_track_" -f "$cueFile" -t "%n-%t" "$DIR"/"$flacFileName"
+
+            cuetag "$cueFile" "$DIR"/"split_track_"*.flac
+        fi
+    done
+
+
+    for i in "$DIR"/*.$SUFFIX
+    do
+        if [ -f "$i" ]; then  	
+             ffmpeg  -i "$i" -acodec alac "$i".m4a \
 		-metadata title=\""$(metaflac --show-tag=TITLE "$1" | sed 's/TITLE=//g' | sed 's/title=//g')"\" \
 		-metadata author=\""$(metaflac --show-tag=ARTIST "$1" | sed 's/ARTIST=//g' | sed 's/artist=//g')"\" \
 		-metadata album=\""$(metaflac --show-tag=ALBUM "$1" | sed 's/ALBUM=//g' | sed 's/album=//g')"\" \
 		-metadata year=\""$(metaflac --show-tag=DATE "$1" | sed 's/DATE=//g' | sed 's/date=//g')"\" \
 		-metadata track=\""$(metaflac --show-tag=TRACKNUMBER "$1" | sed 's/TRACKNUMBER=//g' | sed 's/tracknumber=//g')"\" \
 		-metadata genre=\""$(metaflac --show-tag=GENRE "$1" | sed 's/GENRE=//g' | sed 's/genre=//g')"\"
-else
-	echo "Usage:"
-	echo "flac2alac file.flac"
-	echo ""
-exit 1
-fi
+
+            if [ $IS_DELETE_AFTER_CONVERT -eq 1 ]; then  
+	        rm -v "$i"
+            fi         
+	fi
+    done
+}
+
+IS_RECURSIVE=0
+IS_DELETE_AFTER_CONVERT=0
+
+for parameter in "$@"; do
+	if [ "$parameter" = "-r" ]; then
+		IS_RECURSIVE=1
+	fi
+	if [ "$parameter" = "-d" ]; then
+		IS_DELETE_AFTER_CONVERT=1
+	fi
+	if [ -d "$parameter" ]; then
+		convert_flac2alac "$parameter"
+	fi
+done
