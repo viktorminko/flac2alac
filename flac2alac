@@ -1,9 +1,13 @@
 #!/bin/bash
 
+SUFFIX="flac"
+TEMPORARY_SPLIT_FILE_PREFIX="split_track_"
+IS_RECURSIVE=0
+IS_DELETE_AFTER_CONVERT=0
+IS_DELETE_CUE_FILE=0
+
 function convert_flac2alac { 
     DIR="$1"
-    SUFFIX="flac"
-
 
     if [ $IS_RECURSIVE -eq 1 ]; then  
 	for folder in "$DIR"/*;
@@ -14,38 +18,55 @@ function convert_flac2alac {
         done
     fi
 
+    #If there is a cue file and s "big" flac then try to 
+    #split it into separate  tracks
     for cueFile in "$DIR"/*.cue
     do
-        flacFileName="`basename "$cueFile" .cue`.flac"
+        flacFileName="`basename "$cueFile" .cue`.$SUFFIX"
 
         if [ -f "$DIR"/"$flacFileName" ]; then  	      
-            cuebreakpoints "$cueFile" | shnsplit -o flac -a "$DIR"/"split_track_" -f "$cueFile" -t "%n-%t" "$DIR"/"$flacFileName"
 
-            cuetag "$cueFile" "$DIR"/"split_track_"*.flac
+            #Cue file and corresonded flac were found
+	    #so we need to split it on small flac files in format split_track_number_title.flac
+            cuebreakpoints "$cueFile" | shnsplit -o flac -a "$DIR"/"$TEMPORARY_SPLIT_FILE_PREFIX" -f "$cueFile" -t "%n-%t" "$DIR"/"$flacFileName"
+
+            #Move tags from cue file to flacs
+            cuetag "$cueFile" "$DIR"/"$TEMPORARY_SPLIT_FILE_PREFIX"*."$SUFFIX"
+
+            #If delete parameter was found then remove "big" flac file
+	    if [ $IS_DELETE_AFTER_CONVERT -eq 1 ]; then  
+	        rm -v "$DIR"/"$flacFileName"
+            fi   
+
+            #delete corresponded cue file if necessary
+            if [ $IS_DELETE_CUE_FILE -eq 1 ]; then  
+	        rm -v "$cueFile"
+            fi   
+
         fi
     done
 
-
-    for i in "$DIR"/*.$SUFFIX
+    #Now we neeed to convert each track to alac
+    #preserving tags data
+    for i in "$DIR"/"$TEMPORARY_SPLIT_FILE_PREFIX"*.$SUFFIX
     do
         if [ -f "$i" ]; then  	
-             ffmpeg  -i "$i" -acodec alac "$i".m4a \
-		-metadata title=\""$(metaflac --show-tag=TITLE "$1" | sed 's/TITLE=//g' | sed 's/title=//g')"\" \
-		-metadata author=\""$(metaflac --show-tag=ARTIST "$1" | sed 's/ARTIST=//g' | sed 's/artist=//g')"\" \
-		-metadata album=\""$(metaflac --show-tag=ALBUM "$1" | sed 's/ALBUM=//g' | sed 's/album=//g')"\" \
-		-metadata year=\""$(metaflac --show-tag=DATE "$1" | sed 's/DATE=//g' | sed 's/date=//g')"\" \
-		-metadata track=\""$(metaflac --show-tag=TRACKNUMBER "$1" | sed 's/TRACKNUMBER=//g' | sed 's/tracknumber=//g')"\" \
-		-metadata genre=\""$(metaflac --show-tag=GENRE "$1" | sed 's/GENRE=//g' | sed 's/genre=//g')"\"
+		 ffmpeg  -i "$i" \
+       	         -metadata title="$(metaflac --show-tag=TITLE "$i" | sed 's/title=//gI')" \
+                 -metadata author="$(metaflac --show-tag=ARTIST "$i" | sed 's/artist=//gI')" \
+                 -metadata album="$(metaflac --show-tag=ALBUM "$i" | sed 's/album=//gI')" \
+                 -metadata year="$(metaflac --show-tag=DATE "$i" | sed 's/date=//gI')" \
+                 -metadata track="$(metaflac --show-tag=TRACKNUMBER "$i" | sed 's/tracknumber=//gI')" \
+                 -metadata genre="$(metaflac --show-tag=GENRE "$i" | sed 's/genre=//gI')" \
+                 -acodec alac "$i".m4a
 
+            #Delete flacs if necessary
             if [ $IS_DELETE_AFTER_CONVERT -eq 1 ]; then  
 	        rm -v "$i"
-            fi         
+            fi 
 	fi
     done
 }
-
-IS_RECURSIVE=0
-IS_DELETE_AFTER_CONVERT=0
 
 for parameter in "$@"; do
 	if [ "$parameter" = "-r" ]; then
@@ -53,6 +74,9 @@ for parameter in "$@"; do
 	fi
 	if [ "$parameter" = "-d" ]; then
 		IS_DELETE_AFTER_CONVERT=1
+	fi
+	if [ "$parameter" = "--delete_cue" ]; then
+		IS_DELETE_CUE_FILE=1
 	fi
 	if [ -d "$parameter" ]; then
 		convert_flac2alac "$parameter"
